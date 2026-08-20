@@ -10,6 +10,7 @@ import {
   QrCode,
   Search,
   Shield,
+  ShoppingCart,
   User as UserIcon,
 } from "lucide-react";
 
@@ -22,16 +23,19 @@ type NavItem = {
   label: string;
   icon: typeof Home;
   adminOnly?: boolean;
+  /** En el celular entran cinco: sólo las que se usan andando por la casa. */
+  mobile?: boolean;
 };
 
 const NAV: NavItem[] = [
-  { href: "/", label: "Inicio", icon: Home },
-  { href: "/sectores", label: "Sectores", icon: LayoutGrid },
+  { href: "/", label: "Inicio", icon: Home, mobile: true },
+  { href: "/sectores", label: "Sectores", icon: LayoutGrid, mobile: true },
+  { href: "/compras", label: "Compras", icon: ShoppingCart, mobile: true },
   { href: "/productos", label: "Productos", icon: Package },
-  { href: "/buscar", label: "Buscar", icon: Search },
+  { href: "/buscar", label: "Buscar", icon: Search, mobile: true },
   { href: "/qr", label: "Códigos QR", icon: QrCode },
   { href: "/admin", label: "Admin", icon: Shield, adminOnly: true },
-  { href: "/cuenta", label: "Mi cuenta", icon: UserIcon },
+  { href: "/cuenta", label: "Mi cuenta", icon: UserIcon, mobile: true },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -50,8 +54,7 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const items = NAV.filter((item) => !item.adminOnly || user.role === "ADMIN");
-  // En el celular el espacio es poco: dejamos las cuatro secciones más usadas.
-  const mobileItems = items.filter((item) => item.href !== "/qr").slice(0, 5);
+  const mobileItems = items.filter((item) => item.mobile);
 
   return (
     <div className="flex min-h-dvh flex-col">

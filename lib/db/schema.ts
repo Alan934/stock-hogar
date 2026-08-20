@@ -212,6 +212,33 @@ export const stockEntries = pgTable(
   ],
 );
 
+/**
+ * Ítems sueltos de la lista de compras: lo que no se controla por stock
+ * (pilas, una lamparita, algo puntual para una receta).
+ */
+export const shoppingItems = pgTable(
+  "shopping_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    familyId: uuid("family_id")
+      .notNull()
+      .references(() => families.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    done: boolean("done").notNull().default(false),
+    createdById: uuid("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdByName: text("created_by_name").notNull().default("Alguien"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("shopping_family_idx").on(t.familyId)],
+);
+
 /** Historial: quién sumó o descontó, cuánto, dónde y cuándo. */
 export const movements = pgTable(
   "movements",
@@ -331,3 +358,5 @@ export type Movement = typeof movements.$inferSelect;
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Unit = (typeof unitEnum.enumValues)[number];
 export type MovementKind = (typeof movementKindEnum.enumValues)[number];
+
+export type ShoppingItem = typeof shoppingItems.$inferSelect;

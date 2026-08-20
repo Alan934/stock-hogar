@@ -72,6 +72,13 @@ export default async function DashboardPage() {
             <ShoppingCart className="size-4.5 text-danger" />
             <h2 className="font-semibold">Falta en la casa</h2>
             <Badge tone="danger">{stats.buyCount}</Badge>
+            <Link
+              href="/compras"
+              className="ml-auto flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+            >
+              Lista de compras
+              <ArrowRight className="size-4" />
+            </Link>
           </div>
           <Card>
             <ul className="divide-y divide-border">

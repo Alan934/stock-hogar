@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, ilike, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNotNull, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
@@ -10,6 +10,7 @@ import {
   movements,
   products,
   sectors,
+  shoppingItems,
   stockEntries,
   users,
   type Unit,
@@ -534,4 +535,51 @@ export async function getFamilyMembers(familyId: string) {
     .from(users)
     .where(eq(users.familyId, familyId))
     .orderBy(asc(users.name));
+}
+
+/* ------------------------------------------------------------------ */
+/* Lista de compras                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Ítems escritos a mano, los pendientes primero. */
+export async function getShoppingItems(familyId: string) {
+  return db
+    .select()
+    .from(shoppingItems)
+    .where(eq(shoppingItems.familyId, familyId))
+    .orderBy(asc(shoppingItems.done), asc(shoppingItems.createdAt));
+}
+
+/** Dónde está guardado cada uno de estos productos (para "ya lo compré"). */
+export async function getPlacesForProducts(
+  familyId: string,
+  productIds: string[],
+) {
+  if (productIds.length === 0) return new Map<string, string>();
+
+  const rows = await db
+    .select({
+      productId: stockEntries.productId,
+      compartmentId: compartments.id,
+    })
+    .from(stockEntries)
+    .innerJoin(compartments, eq(compartments.id, stockEntries.compartmentId))
+    .innerJoin(furnitures, eq(furnitures.id, compartments.furnitureId))
+    .innerJoin(sectors, eq(sectors.id, furnitures.sectorId))
+    .where(
+      and(
+        eq(sectors.familyId, familyId),
+        inArray(stockEntries.productId, productIds),
+      ),
+    )
+    .orderBy(desc(stockEntries.quantity));
+
+  // Nos quedamos con el lugar donde más hay: es el destino más probable.
+  const byProduct = new Map<string, string>();
+  for (const row of rows) {
+    if (!byProduct.has(row.productId)) {
+      byProduct.set(row.productId, row.compartmentId);
+    }
+  }
+  return byProduct;
 }

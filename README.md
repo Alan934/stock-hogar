@@ -117,6 +117,23 @@ El segundo es opcional y sirve para el caso típico: 2 rollos de papel en el
 baño con 12 de reserva en la pieza. En total sobra, pero el baño necesita que
 alguien acerque unos cuantos.
 
+### Lista de compras
+
+En **Compras** se junta todo lo que hay que resolver, y la puede usar cualquier
+integrante de la familia:
+
+- **Falta en la casa** — se arma sola con los productos por debajo de su
+  mínimo, y calcula cuánto comprar. El botón **Ya lo compré** pregunta cuánto
+  trajiste y dónde lo guardaste: con eso entra al stock y desaparece de la
+  lista.
+- **No hace falta comprar** — lo que está faltando sólo en un lugar. Se avisa
+  aparte para no comprar de más cuando alcanza con acercarlo.
+- **Anotado a mano** — ítems sueltos que no se controlan por stock (pilas, una
+  lamparita). Cualquiera los anota, los tacha y los borra: son notas para ir al
+  super, no inventario, así que no piden ser administrador.
+
+**Copiar lista** deja todo en el portapapeles para pegarlo en WhatsApp.
+
 ### Cómo se descuenta
 
 En la tarjeta de cada producto:
@@ -139,6 +156,7 @@ En la tarjeta de cada producto:
 | Acción | Integrante | Administrador |
 | --- | :---: | :---: |
 | Ver el stock de su familia | ✅ | ✅ |
+| Usar la lista de compras (anotar, tachar, borrar ítems) | ✅ | ✅ |
 | Sumar y descontar cantidades | ✅ | ✅ |
 | Agregar productos y guardarlos en un mueble | ✅ | ✅ |
 | Mover cantidades de un lugar a otro | ✅ | ✅ |
@@ -195,7 +213,7 @@ usuario: nadie puede ver ni tocar el stock de otra casa.
 ```
 app/
   (auth)/      ingresar · instalacion
-  (app)/       inicio · sectores · muebles · productos · buscar · qr · cuenta · admin
+  (app)/       inicio · sectores · muebles · productos · compras · buscar · qr · cuenta · admin
   m/[token]/   destino de los códigos QR
 components/
   ui/          botones, campos, modales, toasts
@@ -208,6 +226,7 @@ lib/
   queries.ts   lecturas acotadas por familia
 scripts/
   admin.ts             alta y recuperación del administrador
+  aplicar-sql.mjs      aplica un .sql de drizzle/ en una transacción
   seed.ts              datos de ejemplo
   migrar-catalogo.mjs  migración al modelo catálogo + existencias
 ```
