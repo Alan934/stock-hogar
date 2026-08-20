@@ -6,6 +6,7 @@ import {
   Home,
   LayoutGrid,
   LogOut,
+  Package,
   QrCode,
   Search,
   Shield,
@@ -26,6 +27,7 @@ type NavItem = {
 const NAV: NavItem[] = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/sectores", label: "Sectores", icon: LayoutGrid },
+  { href: "/productos", label: "Productos", icon: Package },
   { href: "/buscar", label: "Buscar", icon: Search },
   { href: "/qr", label: "Códigos QR", icon: QrCode },
   { href: "/admin", label: "Admin", icon: Shield, adminOnly: true },

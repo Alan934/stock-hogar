@@ -1,47 +1,44 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { ChevronRight, SearchX, ShoppingCart } from "lucide-react";
+import { ChevronRight, PackageSearch, ShoppingCart } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, EmptyState } from "@/components/ui/card";
-import { SearchBox } from "./search-box";
+import { NewProductButton } from "@/components/stock/product-form";
 import { requireFamilyUser } from "@/lib/auth";
-import { searchCatalog } from "@/lib/queries";
+import { getCatalog } from "@/lib/queries";
 import { unitShort } from "@/lib/units";
 import { formatNumber } from "@/lib/utils";
 
-export const metadata: Metadata = { title: "Buscar" };
+export const metadata: Metadata = { title: "Productos" };
 
-export default async function SearchPage({ searchParams }: PageProps<"/buscar">) {
+export default async function CatalogPage() {
   const user = await requireFamilyUser();
-  const params = await searchParams;
-  const raw = params?.q;
-  const term = typeof raw === "string" ? raw : "";
-
-  const results = await searchCatalog(user.familyId, term);
+  const catalog = await getCatalog(user.familyId);
 
   return (
     <div className="space-y-5">
-      <header className="space-y-3">
-        <h1 className="text-2xl font-semibold tracking-tight">Buscar</h1>
-        <SearchBox defaultValue={term} />
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Productos</h1>
+          <p className="text-sm text-muted">
+            El catálogo de la casa. Cada uno se escribe una vez y después se
+            guarda en los muebles que haga falta.
+          </p>
+        </div>
+        <NewProductButton />
       </header>
 
-      {!term.trim() ? (
-        <p className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted">
-          Escribí el nombre de un producto para ver cuánto hay en la casa y en qué
-          lugares está guardado.
-        </p>
-      ) : results.length === 0 ? (
+      {catalog.length === 0 ? (
         <EmptyState
-          icon={<SearchX className="size-8" />}
-          title={`No encontramos "${term}"`}
-          description="Probá con otra palabra o revisá si está cargado con otro nombre."
+          icon={<PackageSearch className="size-8" />}
+          title="El catálogo está vacío"
+          description="Podés crear productos desde acá, o directamente al guardarlos en un mueble."
         />
       ) : (
         <Card>
           <ul className="divide-y divide-border">
-            {results.map((product) => {
+            {catalog.map((product) => {
               const missing =
                 product.minQuantity > 0 && product.total <= product.minQuantity;
 
@@ -64,7 +61,10 @@ export default async function SearchPage({ searchParams }: PageProps<"/buscar">)
                       <p className="text-xs text-muted">
                         {product.locations === 0
                           ? "Sin guardar en ningún lugar"
-                          : `En ${product.locations} ${product.locations === 1 ? "lugar" : "lugares"}`}
+                          : `${product.locations} ${product.locations === 1 ? "lugar" : "lugares"}`}
+                        {product.minQuantity > 0
+                          ? ` · avisar bajo ${formatNumber(product.minQuantity)} ${unitShort(product.unit)}`
+                          : ""}
                       </p>
                     </div>
                     <span className="shrink-0 text-right">

@@ -76,16 +76,46 @@ npm run db:seed -- --admin tucorreo@ejemplo.com
 
 ## Cómo está organizado el stock
 
+La casa es una jerarquía de lugares:
+
 ```
 Sector          Cocina
 └── Mueble      Heladera            ← acá va el QR
-    ├── Compartimiento  Freezer     → 2 kg carne molida, 1 kg helado
-    └── Compartimiento  Heladera    → mayonesa, 3 mantecas, 750 g de queso
+    ├── Compartimiento  Freezer
+    └── Compartimiento  Heladera
 ```
 
-Cada producto guarda su **unidad** (unidades, paquetes, kg, g, L, ml), un
-**mínimo** para avisar cuándo hay que reponer y el **salto** que aplican los
-botones `+` y `−`. Por ejemplo el queso se mide en gramos y descuenta de a 50.
+Y el producto está partido en dos ideas, para no escribir lo mismo dos veces:
+
+```
+Producto (catálogo — se escribe UNA vez por familia)
+  Queso cremoso · se mide en gramos · salto 50 g · avisar bajo 250 g
+
+Existencias (dónde está y cuánto — muchas por producto)
+  ├── Cocina · Heladera · Freezer     → 1000 g
+  └── Cocina · Heladera · Heladera    →  750 g
+                                total → 1750 g
+```
+
+El **catálogo** guarda lo que no cambia según el lugar: nombre, unidad
+(unidades, paquetes, kg, g, L, ml), el salto de los botones `+` y `−`, la nota
+y el mínimo de toda la casa. Las **existencias** guardan la cantidad de cada
+lugar y, opcionalmente, su vencimiento, una nota y un mínimo propio.
+
+Cuando agregás algo a un compartimiento, primero buscás en el catálogo: si el
+producto ya existe, lo único que escribís es la cantidad. El formulario largo
+aparece sólo cuando el producto es realmente nuevo.
+
+### Los dos avisos
+
+| Aviso | Cuándo aparece | Qué significa |
+| --- | --- | --- |
+| **Comprar** | La suma de todos los lugares no llega al mínimo del producto | Falta en la casa: va a la lista de compras. |
+| **Traer acá** | Una existencia no llega a su propio mínimo | Hay en la casa, pero no donde se usa. Alcanza con acercarlo. |
+
+El segundo es opcional y sirve para el caso típico: 2 rollos de papel en el
+baño con 12 de reserva en la pieza. En total sobra, pero el baño necesita que
+alguien acerque unos cuantos.
 
 ### Cómo se descuenta
 
@@ -96,7 +126,11 @@ En la tarjeta de cada producto:
 - Tocando **el número** se abre el panel de ajuste: atajos de `−500 / −250 / −100
   / −50`, los mismos en positivo, y un campo para poner la cantidad exacta
   cuando contás lo que realmente hay.
-- Todo movimiento queda en el historial con quién lo hizo y cuándo.
+- Desde el menú de la tarjeta podés **mover** una cantidad a otro lugar (por
+  ejemplo pasar 1 kg del freezer a la heladera): queda registrado como traslado
+  en los dos lugares y el total de la casa no cambia.
+- Todo movimiento queda en el historial con quién lo hizo, dónde y cuándo. El
+  historial es del producto, así que se ven mezclados todos sus lugares.
 
 ---
 
@@ -106,8 +140,10 @@ En la tarjeta de cada producto:
 | --- | :---: | :---: |
 | Ver el stock de su familia | ✅ | ✅ |
 | Sumar y descontar cantidades | ✅ | ✅ |
-| Agregar productos | ✅ | ✅ |
+| Agregar productos y guardarlos en un mueble | ✅ | ✅ |
+| Mover cantidades de un lugar a otro | ✅ | ✅ |
 | Editar productos, sectores, muebles y compartimientos | ✅ | ✅ |
+| **Sacar** un producto de un lugar | ❌ | ✅ |
 | **Eliminar** productos, sectores, muebles y compartimientos | ❌ | ✅ |
 | Crear, editar y eliminar usuarios | ❌ | ✅ |
 | Asignar usuarios a familias | ❌ | ✅ |
@@ -159,7 +195,7 @@ usuario: nadie puede ver ni tocar el stock de otra casa.
 ```
 app/
   (auth)/      ingresar · instalacion
-  (app)/       inicio · sectores · muebles · buscar · qr · cuenta · admin
+  (app)/       inicio · sectores · muebles · productos · buscar · qr · cuenta · admin
   m/[token]/   destino de los códigos QR
 components/
   ui/          botones, campos, modales, toasts
@@ -171,6 +207,19 @@ lib/
   password.ts  hashing y reglas de contraseña (lo usan la app y los scripts)
   queries.ts   lecturas acotadas por familia
 scripts/
-  admin.ts     alta y recuperación del administrador
-  seed.ts      datos de ejemplo
+  admin.ts             alta y recuperación del administrador
+  seed.ts              datos de ejemplo
+  migrar-catalogo.mjs  migración al modelo catálogo + existencias
 ```
+
+## Nota sobre la migración al catálogo
+
+Las primeras versiones guardaban el producto colgado de un compartimiento, así
+que el mismo queso en dos lugares eran dos filas sin relación. `scripts/migrar-catalogo.mjs`
+aplica `drizzle/0001_catalogo.sql`: agrupa los duplicados por nombre, crea una
+existencia por lugar y reapunta el historial.
+
+No borra nada. Deja un respaldo en `respaldos/` y conserva la tabla vieja como
+`products_legacy`. Cuando estés seguro de que quedó todo bien, se puede
+eliminar con `DROP TABLE products_legacy;`. Hasta entonces, `drizzle-kit push`
+va a ofrecer borrarla porque no está en el esquema: es esperable.

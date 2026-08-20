@@ -3,11 +3,12 @@
  * freezer y heladera), un baño y un lavadero, dentro de la familia de una
  * cuenta que ya exista.
  *
- * Antes de correrlo creá tu cuenta en /instalacion. Después:
+ * Antes de correrlo creá tu cuenta. Después:
  *   npm run db:seed -- --admin tucorreo@ejemplo.com
  *
- * No crea usuarios ni contraseñas por su cuenta, justamente para no dejar
- * cuentas con claves por defecto dando vueltas.
+ * Incluye a propósito dos casos del mundo real: el queso repartido entre el
+ * freezer y la heladera, y el papel higiénico en el baño con reserva en la
+ * pieza. Sirven para ver cómo un mismo producto vive en varios lugares.
  */
 import { eq } from "drizzle-orm";
 
@@ -19,6 +20,7 @@ import {
   movements,
   products,
   sectors,
+  stockEntries,
   users,
   type Unit,
 } from "@/lib/db/schema";
@@ -31,21 +33,42 @@ function arg(name: string, fallback: string) {
 
 const ADMIN_EMAIL = arg("admin", "").toLowerCase();
 
-type ProductSeed = {
+/** Catálogo: el "qué es", una sola vez cada uno. */
+const CATALOGO: {
   name: string;
-  quantity: number;
   unit: Unit;
-  minQuantity?: number;
-  step?: number;
+  step: number;
+  minQuantity: number;
   notes?: string;
-};
+}[] = [
+  { name: "Queso cremoso", unit: "G", step: 50, minQuantity: 250, notes: "Marca Sobrero" },
+  { name: "Carne molida", unit: "KG", step: 0.25, minQuantity: 0.5 },
+  { name: "Helado", unit: "KG", step: 0.25, minQuantity: 0 },
+  { name: "Milanesas", unit: "UNIDAD", step: 1, minQuantity: 4 },
+  { name: "Mayonesa", unit: "UNIDAD", step: 1, minQuantity: 1 },
+  { name: "Manteca", unit: "UNIDAD", step: 1, minQuantity: 1, notes: "Potes de 500 g" },
+  { name: "Leche", unit: "L", step: 1, minQuantity: 2 },
+  { name: "Fideos", unit: "PAQUETE", step: 1, minQuantity: 2 },
+  { name: "Arroz", unit: "KG", step: 0.5, minQuantity: 1 },
+  { name: "Yerba", unit: "KG", step: 0.5, minQuantity: 1 },
+  { name: "Azúcar", unit: "KG", step: 0.5, minQuantity: 1 },
+  { name: "Ibuprofeno", unit: "UNIDAD", step: 1, minQuantity: 6, notes: "Comprimidos de 400 mg" },
+  { name: "Alcohol en gel", unit: "UNIDAD", step: 1, minQuantity: 1 },
+  { name: "Jabón en polvo", unit: "KG", step: 0.5, minQuantity: 1 },
+  { name: "Lavandina", unit: "L", step: 1, minQuantity: 1 },
+  { name: "Papel higiénico", unit: "UNIDAD", step: 1, minQuantity: 8 },
+];
 
-const LAYOUT: {
+/** Estructura de la casa y qué hay guardado en cada compartimiento. */
+const CASA: {
   sector: string;
   icon: string;
   furnitures: {
     name: string;
-    compartments: { name: string; products: ProductSeed[] }[];
+    compartments: {
+      name: string;
+      items: { product: string; quantity: number; localMin?: number }[];
+    }[];
   }[];
 }[] = [
   {
@@ -57,19 +80,21 @@ const LAYOUT: {
         compartments: [
           {
             name: "Freezer",
-            products: [
-              { name: "Carne molida", quantity: 2, unit: "KG", minQuantity: 0.5, step: 0.25 },
-              { name: "Helado", quantity: 1, unit: "KG", minQuantity: 0, step: 0.25 },
-              { name: "Milanesas", quantity: 12, unit: "UNIDAD", minQuantity: 4 },
+            items: [
+              { product: "Carne molida", quantity: 2 },
+              { product: "Helado", quantity: 1 },
+              { product: "Milanesas", quantity: 12 },
+              // El mismo queso, guardado también acá.
+              { product: "Queso cremoso", quantity: 1000 },
             ],
           },
           {
             name: "Heladera",
-            products: [
-              { name: "Mayonesa", quantity: 1, unit: "UNIDAD", minQuantity: 1 },
-              { name: "Manteca", quantity: 3, unit: "UNIDAD", minQuantity: 1, notes: "Potes de 500 g" },
-              { name: "Queso cremoso", quantity: 750, unit: "G", minQuantity: 250, step: 50 },
-              { name: "Leche", quantity: 2, unit: "L", minQuantity: 1, step: 1 },
+            items: [
+              { product: "Mayonesa", quantity: 1 },
+              { product: "Manteca", quantity: 3 },
+              { product: "Queso cremoso", quantity: 750 },
+              { product: "Leche", quantity: 2 },
             ],
           },
         ],
@@ -79,16 +104,16 @@ const LAYOUT: {
         compartments: [
           {
             name: "Estante de arriba",
-            products: [
-              { name: "Fideos", quantity: 4, unit: "PAQUETE", minQuantity: 2 },
-              { name: "Arroz", quantity: 2, unit: "KG", minQuantity: 1, step: 0.5 },
+            items: [
+              { product: "Fideos", quantity: 4 },
+              { product: "Arroz", quantity: 2 },
             ],
           },
           {
             name: "Estante de abajo",
-            products: [
-              { name: "Yerba", quantity: 1, unit: "KG", minQuantity: 1, step: 0.5 },
-              { name: "Azúcar", quantity: 1, unit: "KG", minQuantity: 1, step: 0.5 },
+            items: [
+              { product: "Yerba", quantity: 1 },
+              { product: "Azúcar", quantity: 1 },
             ],
           },
         ],
@@ -104,10 +129,27 @@ const LAYOUT: {
         compartments: [
           {
             name: "General",
-            products: [
-              { name: "Ibuprofeno", quantity: 20, unit: "UNIDAD", minQuantity: 6, notes: "Comprimidos de 400 mg" },
-              { name: "Alcohol en gel", quantity: 1, unit: "UNIDAD", minQuantity: 1 },
+            items: [
+              { product: "Ibuprofeno", quantity: 20 },
+              { product: "Alcohol en gel", quantity: 1 },
+              // Poco acá y con aviso propio: hay que traer de la reserva.
+              { product: "Papel higiénico", quantity: 2, localMin: 3 },
             ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    sector: "Pieza",
+    icon: "dormitorio",
+    furnitures: [
+      {
+        name: "Estantería",
+        compartments: [
+          {
+            name: "Reserva",
+            items: [{ product: "Papel higiénico", quantity: 12 }],
           },
         ],
       },
@@ -122,10 +164,9 @@ const LAYOUT: {
         compartments: [
           {
             name: "General",
-            products: [
-              { name: "Jabón en polvo", quantity: 3, unit: "KG", minQuantity: 1, step: 0.5 },
-              { name: "Lavandina", quantity: 2, unit: "L", minQuantity: 1, step: 1 },
-              { name: "Papel higiénico", quantity: 8, unit: "UNIDAD", minQuantity: 4 },
+            items: [
+              { product: "Jabón en polvo", quantity: 3 },
+              { product: "Lavandina", quantity: 2 },
             ],
           },
         ],
@@ -152,7 +193,7 @@ async function main() {
   if (!admin) {
     console.error(
       `No existe ninguna cuenta con ${ADMIN_EMAIL}.
-Creá la tuya entrando a /instalacion y volvé a correr esto.`,
+Creá la tuya con "npm run db:admin" y volvé a correr esto.`,
     );
     process.exit(1);
   }
@@ -180,7 +221,32 @@ Creá la tuya entrando a /instalacion y volvé a correr esto.`,
     return;
   }
 
-  for (const [sectorIndex, entry] of LAYOUT.entries()) {
+  /* --- Catálogo -------------------------------------------------------- */
+
+  const catalogIds = new Map<string, string>();
+
+  for (const entry of CATALOGO) {
+    const [product] = await db
+      .insert(products)
+      .values({
+        familyId,
+        name: entry.name,
+        unit: entry.unit,
+        step: entry.step,
+        minQuantity: entry.minQuantity,
+        notes: entry.notes ?? null,
+        createdById: admin.id,
+      })
+      .returning();
+
+    catalogIds.set(entry.name, product.id);
+  }
+
+  console.log(`Catálogo: ${CATALOGO.length} productos`);
+
+  /* --- Casa y existencias ---------------------------------------------- */
+
+  for (const [sectorIndex, entry] of CASA.entries()) {
     const [sector] = await db
       .insert(sectors)
       .values({
@@ -202,7 +268,10 @@ Creá la tuya entrando a /instalacion y volvé a correr esto.`,
         })
         .returning();
 
-      for (const [compartmentIndex, compartmentSeed] of furnitureSeed.compartments.entries()) {
+      for (const [
+        compartmentIndex,
+        compartmentSeed,
+      ] of furnitureSeed.compartments.entries()) {
         const [compartment] = await db
           .insert(compartments)
           .values({
@@ -212,28 +281,26 @@ Creá la tuya entrando a /instalacion y volvé a correr esto.`,
           })
           .returning();
 
-        for (const productSeed of compartmentSeed.products) {
-          const [product] = await db
-            .insert(products)
-            .values({
-              compartmentId: compartment.id,
-              name: productSeed.name,
-              quantity: productSeed.quantity,
-              unit: productSeed.unit,
-              minQuantity: productSeed.minQuantity ?? 0,
-              step: productSeed.step ?? 1,
-              notes: productSeed.notes ?? null,
-              createdById: admin.id,
-            })
-            .returning();
+        for (const item of compartmentSeed.items) {
+          const productId = catalogIds.get(item.product);
+          if (!productId) throw new Error(`Falta en el catálogo: ${item.product}`);
+
+          await db.insert(stockEntries).values({
+            productId,
+            compartmentId: compartment.id,
+            quantity: item.quantity,
+            minQuantity: item.localMin ?? null,
+          });
 
           await db.insert(movements).values({
-            productId: product.id,
+            productId,
+            compartmentId: compartment.id,
+            locationName: `${furnitureSeed.name} · ${compartmentSeed.name}`,
             userId: admin.id,
             userName: admin.name,
             kind: "ALTA",
-            delta: productSeed.quantity,
-            resulting: productSeed.quantity,
+            delta: item.quantity,
+            resulting: item.quantity,
             note: "Carga inicial",
           });
         }
@@ -243,8 +310,7 @@ Creá la tuya entrando a /instalacion y volvé a correr esto.`,
     }
   }
 
-  console.log(`
-Datos de ejemplo cargados en la casa de ${ADMIN_EMAIL}.`);
+  console.log(`\nDatos de ejemplo cargados en la casa de ${ADMIN_EMAIL}.`);
 }
 
 main()

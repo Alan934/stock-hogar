@@ -14,12 +14,15 @@ import type { ActionState } from "@/lib/actions/types";
  */
 export function ConfirmAction({
   onConfirm,
+  onSuccess,
   title,
   description,
   confirmLabel = "Eliminar",
   trigger,
 }: {
   onConfirm: () => Promise<ActionState>;
+  /** Si se pasa, corre en lugar del refresco (por ejemplo para navegar). */
+  onSuccess?: () => void;
   title: string;
   description: string;
   confirmLabel?: string;
@@ -36,7 +39,8 @@ export function ConfirmAction({
       if (result.ok) {
         notify(result.message ?? "Listo.", "success");
         setOpen(false);
-        router.refresh();
+        if (onSuccess) onSuccess();
+        else router.refresh();
       } else {
         notify(result.error ?? "No se pudo completar.", "error");
       }

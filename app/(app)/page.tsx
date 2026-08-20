@@ -1,18 +1,25 @@
 import Link from "next/link";
-import { ArrowRight, Boxes, ChevronRight, PackageSearch, TriangleAlert } from "lucide-react";
+import {
+  ArrowRight,
+  Boxes,
+  ChevronRight,
+  PackageSearch,
+  ShoppingCart,
+  TriangleAlert,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, EmptyState } from "@/components/ui/card";
-import { ProductCard } from "@/components/stock/product-card";
-import { AddProductButton } from "@/components/stock/product-form";
 import { SectorIcon } from "@/components/stock/sector-icon";
+import { StockCard } from "@/components/stock/stock-card";
 import { requireFamilyUser } from "@/lib/auth";
 import {
   getAllCompartments,
   getFamilyStats,
-  getLowStockProducts,
   getRecentMovements,
+  getRefillList,
   getSectorsWithStats,
+  getShoppingList,
 } from "@/lib/queries";
 import { formatNumber, timeAgo } from "@/lib/utils";
 import { unitShort } from "@/lib/units";
@@ -20,13 +27,15 @@ import { unitShort } from "@/lib/units";
 export default async function DashboardPage() {
   const user = await requireFamilyUser();
 
-  const [stats, sectorList, low, compartments, activity] = await Promise.all([
-    getFamilyStats(user.familyId),
-    getSectorsWithStats(user.familyId),
-    getLowStockProducts(user.familyId, 8),
-    getAllCompartments(user.familyId),
-    getRecentMovements(user.familyId, 8),
-  ]);
+  const [stats, sectorList, shopping, refill, compartments, activity] =
+    await Promise.all([
+      getFamilyStats(user.familyId),
+      getSectorsWithStats(user.familyId),
+      getShoppingList(user.familyId, 8),
+      getRefillList(user.familyId, 6),
+      getAllCompartments(user.familyId),
+      getRecentMovements(user.familyId, 8),
+    ]);
 
   const canDelete = user.role === "ADMIN";
 
@@ -41,42 +50,73 @@ export default async function DashboardPage() {
             Esto es lo que hay en casa ahora mismo.
           </p>
         </div>
-        {compartments.length > 0 ? (
-          <AddProductButton
-            compartments={compartments}
-            variant="primary"
-            size="md"
-          />
-        ) : null}
+        <Link
+          href="/productos"
+          className="flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+        >
+          Ver el catálogo
+          <ArrowRight className="size-4" />
+        </Link>
       </header>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Sectores" value={stats.sectorCount} />
         <Stat label="Muebles" value={stats.furnitureCount} />
         <Stat label="Productos" value={stats.productCount} />
-        <Stat label="Para reponer" value={stats.lowCount} tone="warning" />
+        <Stat label="Para comprar" value={stats.buyCount} tone="danger" />
       </div>
 
-      {low.length > 0 ? (
+      {shopping.length > 0 ? (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <ShoppingCart className="size-4.5 text-danger" />
+            <h2 className="font-semibold">Falta en la casa</h2>
+            <Badge tone="danger">{stats.buyCount}</Badge>
+          </div>
+          <Card>
+            <ul className="divide-y divide-border">
+              {shopping.map((product) => (
+                <li key={product.id}>
+                  <Link
+                    href={`/productos/${product.id}`}
+                    className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{product.name}</p>
+                      <p className="text-xs text-muted">
+                        Quedan {formatNumber(product.total)}{" "}
+                        {unitShort(product.unit)} · el mínimo es{" "}
+                        {formatNumber(product.minQuantity)}
+                      </p>
+                    </div>
+                    <ChevronRight className="size-4 shrink-0 text-muted" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </section>
+      ) : null}
+
+      {refill.length > 0 ? (
         <section className="space-y-3">
           <div className="flex items-center gap-2">
             <TriangleAlert className="size-4.5 text-warning" />
-            <h2 className="font-semibold">Hay que reponer</h2>
-            <Badge tone="warning">{stats.lowCount}</Badge>
+            <h2 className="font-semibold">Falta en su lugar</h2>
+            <Badge tone="warning">{stats.refillCount}</Badge>
           </div>
+          <p className="text-sm text-muted">
+            Hay en la casa, pero no donde se usa: convendría acercarlo.
+          </p>
           <div className="grid gap-3 sm:grid-cols-2">
-            {low.map((product) => (
-              <div key={product.id} className="space-y-1">
-                <ProductCard
-                  product={product}
-                  canDelete={canDelete}
-                  compartments={compartments}
-                />
-                <p className="px-1 text-[11px] text-muted">
-                  {product.sectorName} · {product.furnitureName} ·{" "}
-                  {product.compartmentName}
-                </p>
-              </div>
+            {refill.map((item) => (
+              <StockCard
+                key={item.id}
+                item={item}
+                canDelete={canDelete}
+                compartments={compartments}
+                showLocation={`${item.sectorName} · ${item.furnitureName} · ${item.compartmentName}`}
+              />
             ))}
           </div>
         </section>
@@ -147,7 +187,7 @@ export default async function DashboardPage() {
               {activity.map((item) => (
                 <li key={item.id}>
                   <Link
-                    href={`/muebles/${item.furnitureId}`}
+                    href={`/productos/${item.productId}`}
                     className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-2"
                   >
                     <span
@@ -163,7 +203,8 @@ export default async function DashboardPage() {
                         {item.productName}
                       </p>
                       <p className="truncate text-xs text-muted">
-                        {item.userName} · {timeAgo(item.createdAt)} · quedó en{" "}
+                        {item.userName} · {item.locationName} ·{" "}
+                        {timeAgo(item.createdAt)} · quedó en{" "}
                         {formatNumber(item.resulting)} {unitShort(item.unit)}
                       </p>
                     </div>
@@ -192,14 +233,14 @@ function Stat({
 }: {
   label: string;
   value: number;
-  tone?: "default" | "warning";
+  tone?: "default" | "danger";
 }) {
   return (
     <Card className="px-4 py-3">
       <p className="text-xs text-muted">{label}</p>
       <p
         className={`mt-0.5 text-2xl font-semibold tabular-nums ${
-          tone === "warning" && value > 0 ? "text-warning" : ""
+          tone === "danger" && value > 0 ? "text-danger" : ""
         }`}
       >
         {value}

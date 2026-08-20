@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, gt, ilike, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, isNotNull, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
@@ -10,11 +10,127 @@ import {
   movements,
   products,
   sectors,
+  stockEntries,
   users,
+  type Unit,
 } from "@/lib/db/schema";
 
 /* ------------------------------------------------------------------ */
-/* Sectores                                                            */
+/* Piezas reusables                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Total de cada producto sumando todos los lugares donde está guardado. */
+const totals = db
+  .select({
+    productId: stockEntries.productId,
+    total: sql<number>`sum(${stockEntries.quantity})::float8`.as("total"),
+    locations: sql<number>`count(*)::int`.as("locations"),
+  })
+  .from(stockEntries)
+  .groupBy(stockEntries.productId)
+  .as("totals");
+
+/** Falta en la casa: el total no llega al mínimo del producto. */
+const missingInHouse = sql<boolean>`(
+  ${products.minQuantity} > 0
+  and coalesce(${totals.total}, 0) <= ${products.minQuantity}
+)`;
+
+/** Falta en este lugar: la existencia no llega al mínimo propio. */
+const missingHere = sql<boolean>`(
+  ${stockEntries.minQuantity} is not null
+  and ${stockEntries.minQuantity} > 0
+  and ${stockEntries.quantity} <= ${stockEntries.minQuantity}
+)`;
+
+/** Cuenta las existencias que piden atención, por cualquiera de los dos motivos. */
+const needsAttention = sql<number>`count(*) filter (where (
+  ${stockEntries.minQuantity} is not null
+    and ${stockEntries.minQuantity} > 0
+    and ${stockEntries.quantity} <= ${stockEntries.minQuantity}
+) or (
+  ${products.minQuantity} > 0
+    and coalesce(${totals.total}, 0) <= ${products.minQuantity}
+))::int`;
+
+export type ProductInfo = {
+  id: string;
+  name: string;
+  unit: Unit;
+  step: number;
+  minQuantity: number;
+  notes: string | null;
+};
+
+export type StockCardData = {
+  id: string;
+  quantity: number;
+  minQuantity: number | null;
+  expiresAt: string | null;
+  note: string | null;
+  compartmentId: string;
+  product: ProductInfo;
+  /** Suma de todos los lugares donde está este producto. */
+  total: number;
+  /** En cuántos lugares está guardado. */
+  locations: number;
+};
+
+const stockSelection = {
+  id: stockEntries.id,
+  quantity: stockEntries.quantity,
+  minQuantity: stockEntries.minQuantity,
+  expiresAt: stockEntries.expiresAt,
+  note: stockEntries.note,
+  compartmentId: stockEntries.compartmentId,
+  productId: products.id,
+  productName: products.name,
+  productUnit: products.unit,
+  productStep: products.step,
+  productMin: products.minQuantity,
+  productNotes: products.notes,
+  total: sql<number>`coalesce(${totals.total}, ${stockEntries.quantity})::float8`,
+  locations: sql<number>`coalesce(${totals.locations}, 1)::int`,
+};
+
+function toCard(row: {
+  id: string;
+  quantity: number;
+  minQuantity: number | null;
+  expiresAt: string | null;
+  note: string | null;
+  compartmentId: string;
+  productId: string;
+  productName: string;
+  productUnit: Unit;
+  productStep: number;
+  productMin: number;
+  productNotes: string | null;
+  total: number;
+  locations: number;
+}): StockCardData {
+  return {
+    id: row.id,
+    quantity: row.quantity,
+    minQuantity: row.minQuantity,
+    expiresAt: row.expiresAt,
+    note: row.note,
+    compartmentId: row.compartmentId,
+    total: row.total,
+    locations: row.locations,
+    product: {
+      id: row.productId,
+      name: row.productName,
+      unit: row.productUnit,
+      step: row.productStep,
+      minQuantity: row.productMin,
+      notes: row.productNotes,
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Sectores y muebles                                                  */
 /* ------------------------------------------------------------------ */
 
 export async function getSectorsWithStats(familyId: string) {
@@ -26,15 +142,14 @@ export async function getSectorsWithStats(familyId: string) {
       sortOrder: sectors.sortOrder,
       furnitureCount: sql<number>`count(distinct ${furnitures.id})::int`,
       productCount: sql<number>`count(distinct ${products.id})::int`,
-      lowCount: sql<number>`count(distinct ${products.id}) filter (
-        where ${products.minQuantity} > 0
-          and ${products.quantity} <= ${products.minQuantity}
-      )::int`,
+      lowCount: needsAttention,
     })
     .from(sectors)
     .leftJoin(furnitures, eq(furnitures.sectorId, sectors.id))
     .leftJoin(compartments, eq(compartments.furnitureId, furnitures.id))
-    .leftJoin(products, eq(products.compartmentId, compartments.id))
+    .leftJoin(stockEntries, eq(stockEntries.compartmentId, compartments.id))
+    .leftJoin(products, eq(products.id, stockEntries.productId))
+    .leftJoin(totals, eq(totals.productId, products.id))
     .where(eq(sectors.familyId, familyId))
     .groupBy(sectors.id)
     .orderBy(asc(sectors.sortOrder), asc(sectors.name));
@@ -58,42 +173,68 @@ export async function getFurnituresWithStats(sectorId: string) {
       sortOrder: furnitures.sortOrder,
       compartmentCount: sql<number>`count(distinct ${compartments.id})::int`,
       productCount: sql<number>`count(distinct ${products.id})::int`,
-      lowCount: sql<number>`count(distinct ${products.id}) filter (
-        where ${products.minQuantity} > 0
-          and ${products.quantity} <= ${products.minQuantity}
-      )::int`,
+      lowCount: needsAttention,
     })
     .from(furnitures)
     .leftJoin(compartments, eq(compartments.furnitureId, furnitures.id))
-    .leftJoin(products, eq(products.compartmentId, compartments.id))
+    .leftJoin(stockEntries, eq(stockEntries.compartmentId, compartments.id))
+    .leftJoin(products, eq(products.id, stockEntries.productId))
+    .leftJoin(totals, eq(totals.productId, products.id))
     .where(eq(furnitures.sectorId, sectorId))
     .groupBy(furnitures.id)
     .orderBy(asc(furnitures.sortOrder), asc(furnitures.name));
 }
 
-/* ------------------------------------------------------------------ */
-/* Muebles                                                             */
-/* ------------------------------------------------------------------ */
-
-/** Mueble completo con sus compartimientos y productos, validando la familia. */
+/** Mueble completo con sus compartimientos y lo que hay guardado en cada uno. */
 export async function getFurnitureDetail(familyId: string, furnitureId: string) {
-  const furniture = await db.query.furnitures.findFirst({
-    where: eq(furnitures.id, furnitureId),
-    with: {
-      sector: true,
-      compartments: {
-        orderBy: [asc(compartments.sortOrder), asc(compartments.name)],
-        with: {
-          products: {
-            orderBy: [asc(products.name)],
-          },
-        },
-      },
-    },
-  });
+  const [furniture] = await db
+    .select({
+      id: furnitures.id,
+      name: furnitures.name,
+      qrToken: furnitures.qrToken,
+      sectorId: sectors.id,
+      sectorName: sectors.name,
+      familyId: sectors.familyId,
+    })
+    .from(furnitures)
+    .innerJoin(sectors, eq(sectors.id, furnitures.sectorId))
+    .where(eq(furnitures.id, furnitureId))
+    .limit(1);
 
-  if (!furniture || furniture.sector.familyId !== familyId) return null;
-  return furniture;
+  if (!furniture || furniture.familyId !== familyId) return null;
+
+  const compartmentRows = await db
+    .select()
+    .from(compartments)
+    .where(eq(compartments.furnitureId, furniture.id))
+    .orderBy(asc(compartments.sortOrder), asc(compartments.name));
+
+  const stockRows = compartmentRows.length
+    ? await db
+        .select(stockSelection)
+        .from(stockEntries)
+        .innerJoin(products, eq(products.id, stockEntries.productId))
+        .innerJoin(compartments, eq(compartments.id, stockEntries.compartmentId))
+        .leftJoin(totals, eq(totals.productId, products.id))
+        .where(eq(compartments.furnitureId, furniture.id))
+        .orderBy(asc(products.name))
+    : [];
+
+  const byCompartment = new Map<string, StockCardData[]>();
+  for (const row of stockRows) {
+    const card = toCard(row);
+    const list = byCompartment.get(card.compartmentId) ?? [];
+    list.push(card);
+    byCompartment.set(card.compartmentId, list);
+  }
+
+  return {
+    ...furniture,
+    compartments: compartmentRows.map((compartment) => ({
+      ...compartment,
+      items: byCompartment.get(compartment.id) ?? [],
+    })),
+  };
 }
 
 export async function getFurnitureIdByToken(token: string) {
@@ -122,98 +263,195 @@ export async function getAllFurnitures(familyId: string) {
     .orderBy(asc(sectors.sortOrder), asc(sectors.name), asc(furnitures.name));
 }
 
-/* ------------------------------------------------------------------ */
-/* Productos                                                           */
-/* ------------------------------------------------------------------ */
-
-const productWithPath = {
-  id: products.id,
-  name: products.name,
-  quantity: products.quantity,
-  unit: products.unit,
-  minQuantity: products.minQuantity,
-  step: products.step,
-  notes: products.notes,
-  expiresAt: products.expiresAt,
-  updatedAt: products.updatedAt,
-  compartmentId: compartments.id,
-  compartmentName: compartments.name,
-  furnitureId: furnitures.id,
-  furnitureName: furnitures.name,
-  sectorId: sectors.id,
-  sectorName: sectors.name,
-};
-
-export async function getLowStockProducts(familyId: string, limit = 30) {
+/** Todos los compartimientos de la familia, para elegir dónde guardar. */
+export async function getAllCompartments(familyId: string) {
   return db
-    .select(productWithPath)
-    .from(products)
-    .innerJoin(compartments, eq(compartments.id, products.compartmentId))
+    .select({
+      id: compartments.id,
+      name: compartments.name,
+      furnitureName: furnitures.name,
+      sectorName: sectors.name,
+    })
+    .from(compartments)
     .innerJoin(furnitures, eq(furnitures.id, compartments.furnitureId))
     .innerJoin(sectors, eq(sectors.id, furnitures.sectorId))
-    .where(
-      and(
-        eq(sectors.familyId, familyId),
-        gt(products.minQuantity, 0),
-        lte(products.quantity, products.minQuantity),
-      ),
-    )
-    .orderBy(asc(products.quantity), asc(products.name))
-    .limit(limit);
+    .where(eq(sectors.familyId, familyId))
+    .orderBy(asc(sectors.sortOrder), asc(furnitures.name), asc(compartments.name));
 }
 
-export type ProductWithPath = Awaited<
-  ReturnType<typeof getLowStockProducts>
->[number];
+/* ------------------------------------------------------------------ */
+/* Catálogo                                                            */
+/* ------------------------------------------------------------------ */
 
-export async function searchProducts(familyId: string, term: string) {
+const catalogSelection = {
+  id: products.id,
+  name: products.name,
+  unit: products.unit,
+  step: products.step,
+  minQuantity: products.minQuantity,
+  notes: products.notes,
+  total: sql<number>`coalesce(${totals.total}, 0)::float8`,
+  locations: sql<number>`coalesce(${totals.locations}, 0)::int`,
+};
+
+export type CatalogItem = {
+  id: string;
+  name: string;
+  unit: Unit;
+  step: number;
+  minQuantity: number;
+  notes: string | null;
+  total: number;
+  locations: number;
+};
+
+/** Catálogo completo: lo que alimenta el buscador al agregar a un mueble. */
+export async function getCatalog(familyId: string): Promise<CatalogItem[]> {
+  return db
+    .select(catalogSelection)
+    .from(products)
+    .leftJoin(totals, eq(totals.productId, products.id))
+    .where(eq(products.familyId, familyId))
+    .orderBy(asc(products.name));
+}
+
+export async function searchCatalog(familyId: string, term: string) {
   const clean = term.trim();
   if (!clean) return [];
 
   return db
-    .select(productWithPath)
+    .select(catalogSelection)
     .from(products)
-    .innerJoin(compartments, eq(compartments.id, products.compartmentId))
-    .innerJoin(furnitures, eq(furnitures.id, compartments.furnitureId))
-    .innerJoin(sectors, eq(sectors.id, furnitures.sectorId))
-    .where(and(eq(sectors.familyId, familyId), ilike(products.name, `%${clean}%`)))
+    .leftJoin(totals, eq(totals.productId, products.id))
+    .where(and(eq(products.familyId, familyId), ilike(products.name, `%${clean}%`)))
     .orderBy(asc(products.name))
     .limit(60);
 }
 
-/** Devuelve el producto sólo si pertenece a la familia indicada. */
-export async function getProductForFamily(familyId: string, productId: string) {
-  const [row] = await db
-    .select({
-      product: products,
-      familyId: sectors.familyId,
-      furnitureId: furnitures.id,
-      furnitureName: furnitures.name,
-      sectorId: sectors.id,
-      sectorName: sectors.name,
-      compartmentName: compartments.name,
-    })
+/** Un producto con el detalle de dónde está repartido. */
+export async function getProductDetail(familyId: string, productId: string) {
+  const [product] = await db
+    .select(catalogSelection)
     .from(products)
-    .innerJoin(compartments, eq(compartments.id, products.compartmentId))
-    .innerJoin(furnitures, eq(furnitures.id, compartments.furnitureId))
-    .innerJoin(sectors, eq(sectors.id, furnitures.sectorId))
-    .where(eq(products.id, productId))
+    .leftJoin(totals, eq(totals.productId, products.id))
+    .where(and(eq(products.id, productId), eq(products.familyId, familyId)))
     .limit(1);
 
-  if (!row || row.familyId !== familyId) return null;
-  return row;
-}
+  if (!product) return null;
 
-export async function getProductMovements(productId: string, limit = 25) {
-  return db
+  const locations = await db
+    .select({
+      id: stockEntries.id,
+      quantity: stockEntries.quantity,
+      minQuantity: stockEntries.minQuantity,
+      expiresAt: stockEntries.expiresAt,
+      note: stockEntries.note,
+      compartmentId: compartments.id,
+      compartmentName: compartments.name,
+      furnitureId: furnitures.id,
+      furnitureName: furnitures.name,
+      sectorName: sectors.name,
+    })
+    .from(stockEntries)
+    .innerJoin(compartments, eq(compartments.id, stockEntries.compartmentId))
+    .innerJoin(furnitures, eq(furnitures.id, compartments.furnitureId))
+    .innerJoin(sectors, eq(sectors.id, furnitures.sectorId))
+    .where(eq(stockEntries.productId, productId))
+    .orderBy(asc(sectors.name), asc(furnitures.name), asc(compartments.name));
+
+  const history = await db
     .select()
     .from(movements)
     .where(eq(movements.productId, productId))
     .orderBy(desc(movements.createdAt))
+    .limit(40);
+
+  return { product, locations, history };
+}
+
+/* ------------------------------------------------------------------ */
+/* Avisos                                                              */
+/* ------------------------------------------------------------------ */
+
+/** Falta en la casa: hay que comprar. */
+export async function getShoppingList(familyId: string, limit = 30) {
+  return db
+    .select(catalogSelection)
+    .from(products)
+    .leftJoin(totals, eq(totals.productId, products.id))
+    .where(and(eq(products.familyId, familyId), missingInHouse))
+    .orderBy(asc(products.name))
     .limit(limit);
 }
 
-export async function getRecentMovements(familyId: string, limit = 15) {
+/** Falta en un lugar puntual, aunque en la casa haya de sobra. */
+export async function getRefillList(familyId: string, limit = 30) {
+  const rows = await db
+    .select({
+      ...stockSelection,
+      compartmentName: compartments.name,
+      furnitureId: furnitures.id,
+      furnitureName: furnitures.name,
+      sectorName: sectors.name,
+    })
+    .from(stockEntries)
+    .innerJoin(products, eq(products.id, stockEntries.productId))
+    .innerJoin(compartments, eq(compartments.id, stockEntries.compartmentId))
+    .innerJoin(furnitures, eq(furnitures.id, compartments.furnitureId))
+    .innerJoin(sectors, eq(sectors.id, furnitures.sectorId))
+    .leftJoin(totals, eq(totals.productId, products.id))
+    .where(
+      and(eq(sectors.familyId, familyId), isNotNull(stockEntries.minQuantity), missingHere),
+    )
+    .orderBy(asc(products.name))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    ...toCard(row),
+    compartmentName: row.compartmentName,
+    furnitureId: row.furnitureId,
+    furnitureName: row.furnitureName,
+    sectorName: row.sectorName,
+  }));
+}
+
+export async function getFamilyStats(familyId: string) {
+  const [structure] = await db
+    .select({
+      sectorCount: sql<number>`count(distinct ${sectors.id})::int`,
+      furnitureCount: sql<number>`count(distinct ${furnitures.id})::int`,
+    })
+    .from(sectors)
+    .leftJoin(furnitures, eq(furnitures.sectorId, sectors.id))
+    .where(eq(sectors.familyId, familyId));
+
+  const [catalog] = await db
+    .select({
+      productCount: sql<number>`count(*)::int`,
+      buyCount: sql<number>`count(*) filter (where ${missingInHouse})::int`,
+    })
+    .from(products)
+    .leftJoin(totals, eq(totals.productId, products.id))
+    .where(eq(products.familyId, familyId));
+
+  const [refill] = await db
+    .select({ refillCount: sql<number>`count(*)::int` })
+    .from(stockEntries)
+    .innerJoin(compartments, eq(compartments.id, stockEntries.compartmentId))
+    .innerJoin(furnitures, eq(furnitures.id, compartments.furnitureId))
+    .innerJoin(sectors, eq(sectors.id, furnitures.sectorId))
+    .where(and(eq(sectors.familyId, familyId), missingHere));
+
+  return {
+    sectorCount: structure?.sectorCount ?? 0,
+    furnitureCount: structure?.furnitureCount ?? 0,
+    productCount: catalog?.productCount ?? 0,
+    buyCount: catalog?.buyCount ?? 0,
+    refillCount: refill?.refillCount ?? 0,
+  };
+}
+
+export async function getRecentMovements(familyId: string, limit = 12) {
   return db
     .select({
       id: movements.id,
@@ -221,43 +459,17 @@ export async function getRecentMovements(familyId: string, limit = 15) {
       resulting: movements.resulting,
       kind: movements.kind,
       userName: movements.userName,
+      locationName: movements.locationName,
       createdAt: movements.createdAt,
       productId: products.id,
       productName: products.name,
       unit: products.unit,
-      furnitureId: furnitures.id,
-      furnitureName: furnitures.name,
     })
     .from(movements)
     .innerJoin(products, eq(products.id, movements.productId))
-    .innerJoin(compartments, eq(compartments.id, products.compartmentId))
-    .innerJoin(furnitures, eq(furnitures.id, compartments.furnitureId))
-    .innerJoin(sectors, eq(sectors.id, furnitures.sectorId))
-    .where(eq(sectors.familyId, familyId))
+    .where(eq(products.familyId, familyId))
     .orderBy(desc(movements.createdAt))
     .limit(limit);
-}
-
-export async function getFamilyStats(familyId: string) {
-  const [row] = await db
-    .select({
-      sectorCount: sql<number>`count(distinct ${sectors.id})::int`,
-      furnitureCount: sql<number>`count(distinct ${furnitures.id})::int`,
-      productCount: sql<number>`count(distinct ${products.id})::int`,
-      lowCount: sql<number>`count(distinct ${products.id}) filter (
-        where ${products.minQuantity} > 0
-          and ${products.quantity} <= ${products.minQuantity}
-      )::int`,
-    })
-    .from(sectors)
-    .leftJoin(furnitures, eq(furnitures.sectorId, sectors.id))
-    .leftJoin(compartments, eq(compartments.furnitureId, furnitures.id))
-    .leftJoin(products, eq(products.compartmentId, compartments.id))
-    .where(eq(sectors.familyId, familyId));
-
-  return (
-    row ?? { sectorCount: 0, furnitureCount: 0, productCount: 0, lowCount: 0 }
-  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -322,19 +534,4 @@ export async function getFamilyMembers(familyId: string) {
     .from(users)
     .where(eq(users.familyId, familyId))
     .orderBy(asc(users.name));
-}
-
-/** Todos los compartimientos de la familia (para mover productos de lugar). */
-export async function getAllCompartments(familyId: string) {
-  return db
-    .select({
-      id: compartments.id,
-      name: compartments.name,
-      furnitureName: furnitures.name,
-    })
-    .from(compartments)
-    .innerJoin(furnitures, eq(furnitures.id, compartments.furnitureId))
-    .innerJoin(sectors, eq(sectors.id, furnitures.sectorId))
-    .where(eq(sectors.familyId, familyId))
-    .orderBy(asc(sectors.name), asc(furnitures.name), asc(compartments.name));
 }

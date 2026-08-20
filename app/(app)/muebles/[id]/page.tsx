@@ -5,16 +5,16 @@ import { ArrowLeft, PackageOpen } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/card";
+import { AddStockButton } from "@/components/stock/add-stock";
 import {
   CompartmentMenu,
   FurnitureMenu,
   NewCompartmentButton,
 } from "@/components/stock/furniture-dialogs";
-import { ProductCard } from "@/components/stock/product-card";
-import { AddProductButton } from "@/components/stock/product-form";
 import { QrButton } from "@/components/stock/qr";
+import { StockCard } from "@/components/stock/stock-card";
 import { requireFamilyUser } from "@/lib/auth";
-import { getAllCompartments, getFurnitureDetail } from "@/lib/queries";
+import { getAllCompartments, getCatalog, getFurnitureDetail } from "@/lib/queries";
 
 export async function generateMetadata({
   params,
@@ -32,22 +32,21 @@ export default async function FurniturePage({ params }: PageProps<"/muebles/[id]
   const furniture = await getFurnitureDetail(user.familyId, id);
   if (!furniture) notFound();
 
-  const allCompartments = await getAllCompartments(user.familyId);
+  const [catalog, compartmentOptions] = await Promise.all([
+    getCatalog(user.familyId),
+    getAllCompartments(user.familyId),
+  ]);
+
   const canDelete = user.role === "ADMIN";
 
-  const totalProducts = furniture.compartments.reduce(
-    (total, compartment) => total + compartment.products.length,
-    0,
-  );
-  const lowCount = furniture.compartments.reduce(
-    (total, compartment) =>
-      total +
-      compartment.products.filter(
-        (product) =>
-          product.minQuantity > 0 && product.quantity <= product.minQuantity,
-      ).length,
-    0,
-  );
+  const allItems = furniture.compartments.flatMap((compartment) => compartment.items);
+  const attention = allItems.filter(
+    (item) =>
+      (item.minQuantity !== null &&
+        item.minQuantity > 0 &&
+        item.quantity <= item.minQuantity) ||
+      (item.product.minQuantity > 0 && item.total <= item.product.minQuantity),
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -56,7 +55,7 @@ export default async function FurniturePage({ params }: PageProps<"/muebles/[id]
         className="inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-foreground"
       >
         <ArrowLeft className="size-4" />
-        {furniture.sector.name}
+        {furniture.sectorName}
       </Link>
 
       <header className="space-y-3">
@@ -66,12 +65,12 @@ export default async function FurniturePage({ params }: PageProps<"/muebles/[id]
               {furniture.name}
             </h1>
             <p className="text-sm text-muted">
-              {totalProducts} {totalProducts === 1 ? "producto" : "productos"} en{" "}
-              {furniture.compartments.length}{" "}
+              {allItems.length} {allItems.length === 1 ? "producto" : "productos"}{" "}
+              en {furniture.compartments.length}{" "}
               {furniture.compartments.length === 1
                 ? "compartimiento"
                 : "compartimientos"}
-              {lowCount > 0 ? ` · ${lowCount} para reponer` : ""}
+              {attention > 0 ? ` · ${attention} para revisar` : ""}
             </p>
           </div>
           <FurnitureMenu furniture={furniture} canDelete={canDelete} />
@@ -84,7 +83,7 @@ export default async function FurniturePage({ params }: PageProps<"/muebles/[id]
               name: furniture.name,
               qrToken: furniture.qrToken,
             }}
-            isAdmin={user.role === "ADMIN"}
+            isAdmin={canDelete}
           />
           <NewCompartmentButton furnitureId={furniture.id} />
         </div>
@@ -99,10 +98,11 @@ export default async function FurniturePage({ params }: PageProps<"/muebles/[id]
       ) : (
         <div className="space-y-7">
           {furniture.compartments.map((compartment) => {
-            const compartmentLow = compartment.products.filter(
-              (product) =>
-                product.minQuantity > 0 &&
-                product.quantity <= product.minQuantity,
+            const compartmentAttention = compartment.items.filter(
+              (item) =>
+                item.minQuantity !== null &&
+                item.minQuantity > 0 &&
+                item.quantity <= item.minQuantity,
             ).length;
 
             return (
@@ -110,16 +110,16 @@ export default async function FurniturePage({ params }: PageProps<"/muebles/[id]
                 <div className="flex items-center gap-2 border-b border-border pb-2">
                   <h2 className="font-semibold">{compartment.name}</h2>
                   <span className="text-sm text-muted">
-                    {compartment.products.length}
+                    {compartment.items.length}
                   </span>
-                  {compartmentLow > 0 ? (
-                    <Badge tone="warning">{compartmentLow} a reponer</Badge>
+                  {compartmentAttention > 0 ? (
+                    <Badge tone="warning">{compartmentAttention} a reponer</Badge>
                   ) : null}
                   <div className="ml-auto flex items-center gap-1">
-                    <AddProductButton
-                      compartments={allCompartments}
-                      defaultCompartmentId={compartment.id}
-                      label="Producto"
+                    <AddStockButton
+                      catalog={catalog}
+                      compartmentId={compartment.id}
+                      compartmentName={compartment.name}
                     />
                     <CompartmentMenu
                       compartment={compartment}
@@ -128,18 +128,18 @@ export default async function FurniturePage({ params }: PageProps<"/muebles/[id]
                   </div>
                 </div>
 
-                {compartment.products.length === 0 ? (
+                {compartment.items.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted">
                     Todavía no hay nada guardado acá.
                   </p>
                 ) : (
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {compartment.products.map((product) => (
-                      <ProductCard
-                        key={product.id}
-                        product={product}
+                    {compartment.items.map((item) => (
+                      <StockCard
+                        key={item.id}
+                        item={item}
                         canDelete={canDelete}
-                        compartments={allCompartments}
+                        compartments={compartmentOptions}
                       />
                     ))}
                   </div>

@@ -33,6 +33,7 @@ export const movementKindEnum = pgEnum("movement_kind", [
   "CONSUMO",
   "REPOSICION",
   "AJUSTE",
+  "TRASLADO",
 ]);
 
 /* ------------------------------------------------------------------ */
@@ -122,19 +123,27 @@ export const compartments = pgTable(
   (t) => [index("compartments_furniture_idx").on(t.furnitureId)],
 );
 
+/**
+ * Catálogo: el "qué es". Se escribe una sola vez por familia y después se
+ * reutiliza en todos los lugares donde haya ese producto.
+ */
 export const products = pgTable(
   "products",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    compartmentId: uuid("compartment_id")
+    familyId: uuid("family_id")
       .notNull()
-      .references(() => compartments.id, { onDelete: "cascade" }),
+      .references(() => families.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    quantity: numeric("quantity", { precision: 12, scale: 3, mode: "number" })
-      .notNull()
-      .default(0),
     unit: unitEnum("unit").notNull().default("UNIDAD"),
-    /** Cantidad a partir de la cual la app avisa que hay que reponer. */
+    /** Cuánto suma o resta cada toque de los botones + / -. */
+    step: numeric("step", { precision: 12, scale: 3, mode: "number" })
+      .notNull()
+      .default(1),
+    /**
+     * Mínimo para toda la casa: se compara contra la suma de las existencias.
+     * En 0 no avisa nunca.
+     */
     minQuantity: numeric("min_quantity", {
       precision: 12,
       scale: 3,
@@ -142,12 +151,7 @@ export const products = pgTable(
     })
       .notNull()
       .default(0),
-    /** Cuánto suma o resta cada toque de los botones + / -. */
-    step: numeric("step", { precision: 12, scale: 3, mode: "number" })
-      .notNull()
-      .default(1),
     notes: text("notes"),
-    expiresAt: date("expires_at"),
     createdById: uuid("created_by_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -158,10 +162,57 @@ export const products = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("products_compartment_idx").on(t.compartmentId)],
+  (t) => [
+    index("products_family_idx").on(t.familyId),
+    unique("products_family_name_unique").on(t.familyId, t.name),
+  ],
 );
 
-/** Historial: quién sumó o descontó, cuánto y cuándo. */
+/**
+ * Existencias: el "cuánto hay y dónde". Un producto del catálogo puede estar
+ * repartido en varios compartimientos (1 kg de queso en el freezer y otro en
+ * la heladera), con una fila por lugar.
+ */
+export const stockEntries = pgTable(
+  "stock_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    compartmentId: uuid("compartment_id")
+      .notNull()
+      .references(() => compartments.id, { onDelete: "cascade" }),
+    quantity: numeric("quantity", { precision: 12, scale: 3, mode: "number" })
+      .notNull()
+      .default(0),
+    /**
+     * Mínimo de este lugar en particular, opcional: sirve para avisar "traé
+     * de la reserva" aunque en la casa haya de sobra. En null no avisa.
+     */
+    minQuantity: numeric("min_quantity", {
+      precision: 12,
+      scale: 3,
+      mode: "number",
+    }),
+    expiresAt: date("expires_at"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("stock_product_idx").on(t.productId),
+    index("stock_compartment_idx").on(t.compartmentId),
+    // Un producto aparece una sola vez por compartimiento: si ya está, se suma.
+    unique("stock_product_compartment_unique").on(t.productId, t.compartmentId),
+  ],
+);
+
+/** Historial: quién sumó o descontó, cuánto, dónde y cuándo. */
 export const movements = pgTable(
   "movements",
   {
@@ -169,6 +220,11 @@ export const movements = pgTable(
     productId: uuid("product_id")
       .notNull()
       .references(() => products.id, { onDelete: "cascade" }),
+    compartmentId: uuid("compartment_id").references(() => compartments.id, {
+      onDelete: "set null",
+    }),
+    /** Nombre del lugar por si ese compartimiento se elimina más adelante. */
+    locationName: text("location_name").notNull().default("Sin lugar"),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     /** Se guarda el nombre por si ese usuario se elimina más adelante. */
     userName: text("user_name").notNull().default("Alguien"),
@@ -176,6 +232,7 @@ export const movements = pgTable(
     delta: numeric("delta", { precision: 12, scale: 3, mode: "number" })
       .notNull()
       .default(0),
+    /** Cuánto quedó en ese lugar después del movimiento. */
     resulting: numeric("resulting", { precision: 12, scale: 3, mode: "number" })
       .notNull()
       .default(0),
@@ -194,6 +251,7 @@ export const movements = pgTable(
 export const familiesRelations = relations(families, ({ many }) => ({
   users: many(users),
   sectors: many(sectors),
+  products: many(products),
 }));
 
 export const usersRelations = relations(users, ({ one }) => ({
@@ -226,16 +284,28 @@ export const compartmentsRelations = relations(
       fields: [compartments.furnitureId],
       references: [furnitures.id],
     }),
-    products: many(products),
+    stockEntries: many(stockEntries),
   }),
 );
 
 export const productsRelations = relations(products, ({ one, many }) => ({
+  family: one(families, {
+    fields: [products.familyId],
+    references: [families.id],
+  }),
+  stockEntries: many(stockEntries),
+  movements: many(movements),
+}));
+
+export const stockEntriesRelations = relations(stockEntries, ({ one }) => ({
+  product: one(products, {
+    fields: [stockEntries.productId],
+    references: [products.id],
+  }),
   compartment: one(compartments, {
-    fields: [products.compartmentId],
+    fields: [stockEntries.compartmentId],
     references: [compartments.id],
   }),
-  movements: many(movements),
 }));
 
 export const movementsRelations = relations(movements, ({ one }) => ({
@@ -256,6 +326,7 @@ export type Sector = typeof sectors.$inferSelect;
 export type Furniture = typeof furnitures.$inferSelect;
 export type Compartment = typeof compartments.$inferSelect;
 export type Product = typeof products.$inferSelect;
+export type StockEntry = typeof stockEntries.$inferSelect;
 export type Movement = typeof movements.$inferSelect;
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Unit = (typeof unitEnum.enumValues)[number];
