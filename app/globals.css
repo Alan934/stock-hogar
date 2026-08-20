@@ -1,0 +1,184 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: 40 22% 97%;
+  --surface: 0 0% 100%;
+  --surface-2: 40 16% 94%;
+  --foreground: 165 18% 12%;
+  --muted: 165 7% 42%;
+  --border: 150 10% 87%;
+  --input: 150 12% 82%;
+  --ring: 160 55% 38%;
+
+  --primary: 162 58% 32%;
+  --primary-soft: 162 45% 92%;
+  --primary-foreground: 0 0% 100%;
+
+  --danger: 358 68% 47%;
+  --danger-soft: 358 80% 95%;
+  --warning: 33 92% 45%;
+  --warning-soft: 36 95% 92%;
+  --success: 150 58% 36%;
+  --success-soft: 150 55% 92%;
+
+  --shadow-color: 165 25% 20%;
+}
+
+.dark {
+  --background: 195 20% 8%;
+  --surface: 195 18% 11%;
+  --surface-2: 195 16% 15%;
+  --foreground: 150 12% 93%;
+  --muted: 155 8% 62%;
+  --border: 196 14% 21%;
+  --input: 196 14% 26%;
+  --ring: 158 60% 45%;
+
+  --primary: 158 62% 43%;
+  --primary-soft: 162 40% 18%;
+  --primary-foreground: 165 45% 7%;
+
+  --danger: 358 72% 60%;
+  --danger-soft: 358 40% 20%;
+  --warning: 36 88% 58%;
+  --warning-soft: 34 45% 19%;
+  --success: 152 55% 48%;
+  --success-soft: 152 40% 17%;
+
+  --shadow-color: 195 60% 3%;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-surface: hsl(var(--surface));
+  --color-surface-2: hsl(var(--surface-2));
+  --color-foreground: hsl(var(--foreground));
+  --color-muted: hsl(var(--muted));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-soft: hsl(var(--primary-soft));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-danger: hsl(var(--danger));
+  --color-danger-soft: hsl(var(--danger-soft));
+  --color-warning: hsl(var(--warning));
+  --color-warning-soft: hsl(var(--warning-soft));
+  --color-success: hsl(var(--success));
+  --color-success-soft: hsl(var(--success-soft));
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans);
+    /* Deja aire abajo para la barra de navegación fija del celular. */
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  ::selection {
+    background-color: hsl(var(--primary) / 0.22);
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+}
+
+@layer utilities {
+  .card-shadow {
+    box-shadow:
+      0 1px 2px hsl(var(--shadow-color) / 0.05),
+      0 8px 24px -12px hsl(var(--shadow-color) / 0.12);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Hoja imprimible de códigos QR */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+  }
+
+  .print-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0 !important;
+  }
+
+  .qr-card {
+    break-inside: avoid;
+    border: 1px dashed #999 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+}
+
+@keyframes sh-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sh-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-fade-in {
+  animation: sh-fade-in 0.18s ease-out;
+}
+
+.animate-pop {
+  animation: sh-pop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
