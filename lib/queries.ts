@@ -7,6 +7,8 @@ import {
   compartments,
   families,
   furnitures,
+  intakeBatches,
+  intakeLines,
   movements,
   products,
   sectors,
@@ -291,6 +293,7 @@ const catalogSelection = {
   step: products.step,
   minQuantity: products.minQuantity,
   notes: products.notes,
+  defaultCompartmentId: products.defaultCompartmentId,
   total: sql<number>`coalesce(${totals.total}, 0)::float8`,
   locations: sql<number>`coalesce(${totals.locations}, 0)::int`,
 };
@@ -302,6 +305,7 @@ export type CatalogItem = {
   step: number;
   minQuantity: number;
   notes: string | null;
+  defaultCompartmentId: string | null;
   total: number;
   locations: number;
 };
@@ -582,4 +586,91 @@ export async function getPlacesForProducts(
     }
   }
   return byProduct;
+}
+
+/* ------------------------------------------------------------------ */
+/* Carga en lote                                                       */
+/* ------------------------------------------------------------------ */
+
+export type IntakeLineData = {
+  id: string;
+  productId: string | null;
+  /** Lo que dijo la fuente. Se muestra cuando el producto está sin resolver. */
+  rawLabel: string;
+  quantity: number;
+  compartmentId: string | null;
+  expiresAt: string | null;
+  note: string | null;
+  skipped: boolean;
+  sortOrder: number;
+  productName: string | null;
+  productUnit: Unit | null;
+  productStep: number | null;
+  /** Cuánto hay hoy en toda la casa, para saber si vale la pena guardarlo. */
+  total: number;
+};
+
+/** El borrador abierto de la familia, si hay uno a medio revisar. */
+export async function getOpenIntakeBatch(familyId: string) {
+  // Con join y group by en vez de subconsulta correlacionada: adentro de una
+  // subconsulta Drizzle no califica los nombres y la comparación sale mal.
+  const [batch] = await db
+    .select({
+      id: intakeBatches.id,
+      createdAt: intakeBatches.createdAt,
+      createdByName: intakeBatches.createdByName,
+      lineCount: sql<number>`count(${intakeLines.id}) filter (
+        where ${intakeLines.skipped} = false
+      )::int`,
+    })
+    .from(intakeBatches)
+    .leftJoin(intakeLines, eq(intakeLines.batchId, intakeBatches.id))
+    .where(
+      and(
+        eq(intakeBatches.familyId, familyId),
+        eq(intakeBatches.status, "BORRADOR"),
+      ),
+    )
+    .groupBy(intakeBatches.id)
+    .orderBy(desc(intakeBatches.createdAt))
+    .limit(1);
+
+  return batch ?? null;
+}
+
+/** El lote completo con sus renglones, validando que sea de la familia. */
+export async function getIntakeBatch(familyId: string, batchId: string) {
+  const [batch] = await db
+    .select()
+    .from(intakeBatches)
+    .where(
+      and(eq(intakeBatches.id, batchId), eq(intakeBatches.familyId, familyId)),
+    )
+    .limit(1);
+
+  if (!batch) return null;
+
+  const lines: IntakeLineData[] = await db
+    .select({
+      id: intakeLines.id,
+      productId: intakeLines.productId,
+      rawLabel: intakeLines.rawLabel,
+      quantity: intakeLines.quantity,
+      compartmentId: intakeLines.compartmentId,
+      expiresAt: intakeLines.expiresAt,
+      note: intakeLines.note,
+      skipped: intakeLines.skipped,
+      sortOrder: intakeLines.sortOrder,
+      productName: products.name,
+      productUnit: products.unit,
+      productStep: products.step,
+      total: sql<number>`coalesce(${totals.total}, 0)::float8`,
+    })
+    .from(intakeLines)
+    .leftJoin(products, eq(products.id, intakeLines.productId))
+    .leftJoin(totals, eq(totals.productId, products.id))
+    .where(eq(intakeLines.batchId, batch.id))
+    .orderBy(asc(intakeLines.sortOrder), asc(intakeLines.createdAt));
+
+  return { batch, lines };
 }

@@ -13,7 +13,7 @@ import { addStockAction, createProductAction } from "@/lib/actions/stock";
 import { IDLE, type ActionState } from "@/lib/actions/types";
 import type { Unit } from "@/lib/db/schema";
 import { UNITS, unitInfo } from "@/lib/units";
-import { formatNumber } from "@/lib/utils";
+import { formatNumber, normalizeText } from "@/lib/utils";
 
 export type CatalogOption = {
   id: string;
@@ -25,15 +25,6 @@ export type CatalogOption = {
   total: number;
   locations: number;
 };
-
-/** Compara sin distinguir mayúsculas ni tildes. */
-function normalize(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .trim();
-}
 
 export function AddStockButton({
   catalog,
@@ -96,13 +87,13 @@ function AddStockFlow({
   const [creating, setCreating] = useState(false);
 
   const matches = useMemo(() => {
-    const term = normalize(query);
+    const term = normalizeText(query);
     if (!term) return catalog;
-    return catalog.filter((item) => normalize(item.name).includes(term));
+    return catalog.filter((item) => normalizeText(item.name).includes(term));
   }, [catalog, query]);
 
   const exactMatch = matches.some(
-    (item) => normalize(item.name) === normalize(query),
+    (item) => normalizeText(item.name) === normalizeText(query),
   );
 
   if (selected) {

@@ -29,6 +29,14 @@ Creá las tablas (una sola vez):
 npm run db:push
 ```
 
+Si venís de una versión anterior, las migraciones de `drizzle/` se aplican una
+por una con el script que las corre en una transacción. La última es la carga
+en lote:
+
+```bash
+node --env-file=.env scripts/aplicar-sql.mjs drizzle/0003_carga_en_lote.sql
+```
+
 Creá tu cuenta de administrador:
 
 ```bash
@@ -134,6 +142,38 @@ integrante de la familia:
 
 **Copiar lista** deja todo en el portapapeles para pegarlo en WhatsApp.
 
+### Cargar la compra en lote
+
+**Ya lo compré** está bien para una cosa suelta. Para la vuelta del super con
+ochenta productos está **Cargar la compra**, que abre un borrador con todo lo
+que faltaba: cantidad sugerida y lugar ya elegidos.
+
+Ahí se revisa todo junto en una sola pantalla —`+` / `−` o el número para la
+cantidad, un desplegable para el lugar— y recién al apretar **Guardar todo**
+impacta en el stock, en una sola transacción: o entran los ochenta o no entra
+ninguno.
+
+Detalles que hacen la diferencia con ochenta ítems:
+
+- **El borrador vive en la base**, no en el navegador. Se puede empezar en el
+  super, seguir en casa desde otro teléfono y retomarlo si se corta. Hay uno
+  solo abierto por familia y aparece anunciado arriba de la lista de compras.
+- **Cada producto aprende dónde va.** Al confirmar se guarda el compartimiento
+  usado en `products.default_compartment_id`, así la próxima compra ya viene
+  con el lugar puesto y deja de preguntar "¿dónde lo pongo?".
+- **Lo que no estaba en el catálogo se crea en el momento**, con lo mínimo
+  (nombre y unidad). El resto de la ficha se completa después.
+- **Saltear** deja el renglón anotado pero sin impacto; **la papelera** lo saca
+  del lote. Ninguna de las dos toca el stock.
+- Un producto repetido en dos renglones del mismo lugar se suma antes de
+  escribir, porque en el stock hay una sola fila por producto y lugar.
+- Todo queda en el historial como reposición, con la nota "Carga de compras".
+
+Los renglones son una tabla (`intake_lines`) que no sabe de dónde salió cada
+uno: hoy los llena la lista de compras o el buscador, y el mismo borrador y la
+misma pantalla de revisión sirven para lo que venga después (una foto del
+ticket, un escáner de códigos de barras, un dictado).
+
 ### Cómo se descuenta
 
 En la tarjeta de cada producto:
@@ -159,6 +199,7 @@ En la tarjeta de cada producto:
 | Usar la lista de compras (anotar, tachar, borrar ítems) | ✅ | ✅ |
 | Sumar y descontar cantidades | ✅ | ✅ |
 | Agregar productos y guardarlos en un mueble | ✅ | ✅ |
+| Cargar una compra en lote (abrir, revisar, confirmar, descartar) | ✅ | ✅ |
 | Mover cantidades de un lugar a otro | ✅ | ✅ |
 | Editar productos, sectores, muebles y compartimientos | ✅ | ✅ |
 | **Sacar** un producto de un lugar | ❌ | ✅ |
@@ -214,13 +255,14 @@ usuario: nadie puede ver ni tocar el stock de otra casa.
 app/
   (auth)/      ingresar · instalacion
   (app)/       inicio · sectores · muebles · productos · compras · buscar · qr · cuenta · admin
+    compras/cargar/[id]/   revisión de la carga en lote
   m/[token]/   destino de los códigos QR
 components/
   ui/          botones, campos, modales, toasts
   stock/       tarjeta de producto, formularios, QR, íconos
 lib/
   db/          esquema y cliente de Drizzle
-  actions/     server actions (auth, stock, admin)
+  actions/     server actions (auth, stock, compras, carga en lote, admin)
   auth.ts      sesión y guardas de rol
   password.ts  hashing y reglas de contraseña (lo usan la app y los scripts)
   queries.ts   lecturas acotadas por familia

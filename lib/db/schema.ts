@@ -36,6 +36,25 @@ export const movementKindEnum = pgEnum("movement_kind", [
   "TRASLADO",
 ]);
 
+/** Estado de una carga en lote: se revisa en borrador y se confirma de una. */
+export const intakeStatusEnum = pgEnum("intake_status", [
+  "BORRADOR",
+  "CONFIRMADO",
+  "DESCARTADO",
+]);
+
+/**
+ * De dónde salieron los renglones del lote. Hoy se usan LISTA y MANUAL; las
+ * otras quedan listas para cuando entren el ticket, el escáner y el dictado.
+ */
+export const intakeSourceEnum = pgEnum("intake_source", [
+  "LISTA",
+  "MANUAL",
+  "TICKET",
+  "ESCANER",
+  "VOZ",
+]);
+
 /* ------------------------------------------------------------------ */
 /* Tablas                                                              */
 /* ------------------------------------------------------------------ */
@@ -152,6 +171,14 @@ export const products = pgTable(
       .notNull()
       .default(0),
     notes: text("notes"),
+    /**
+     * Dónde va normalmente. Se aprende solo: cada carga en lote deja anotado
+     * el último lugar, y desde ahí la app deja de preguntar "¿dónde lo pongo?".
+     */
+    defaultCompartmentId: uuid("default_compartment_id").references(
+      () => compartments.id,
+      { onDelete: "set null" },
+    ),
     createdById: uuid("created_by_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -237,6 +264,72 @@ export const shoppingItems = pgTable(
       .defaultNow(),
   },
   (t) => [index("shopping_family_idx").on(t.familyId)],
+);
+
+/**
+ * Carga en lote: la vuelta del super con ochenta cosas. Se arma un borrador,
+ * se revisa en una sola pantalla y recién ahí impacta en el stock. Al ser una
+ * tabla y no un estado del navegador, se puede empezar en el super y terminar
+ * en casa, o retomarlo si se corta a la mitad.
+ */
+export const intakeBatches = pgTable(
+  "intake_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    familyId: uuid("family_id")
+      .notNull()
+      .references(() => families.id, { onDelete: "cascade" }),
+    status: intakeStatusEnum("status").notNull().default("BORRADOR"),
+    source: intakeSourceEnum("source").notNull().default("MANUAL"),
+    createdById: uuid("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdByName: text("created_by_name").notNull().default("Alguien"),
+    note: text("note"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("intake_batches_family_idx").on(t.familyId, t.status)],
+);
+
+/**
+ * Un renglón del lote. Puede venir sin producto todavía (un renglón de ticket
+ * que nadie identificó): en la pantalla de revisión se resuelve y ahí sí queda
+ * listo para confirmar.
+ */
+export const intakeLines = pgTable(
+  "intake_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id")
+      .notNull()
+      .references(() => intakeBatches.id, { onDelete: "cascade" }),
+    productId: uuid("product_id").references(() => products.id, {
+      onDelete: "cascade",
+    }),
+    /** Lo que dijo la fuente, tal cual: sirve para reconocerlo al revisar. */
+    rawLabel: text("raw_label").notNull().default(""),
+    quantity: numeric("quantity", { precision: 12, scale: 3, mode: "number" })
+      .notNull()
+      .default(0),
+    compartmentId: uuid("compartment_id").references(() => compartments.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: date("expires_at"),
+    note: text("note"),
+    /** Al final no lo compré: queda en el lote pero no impacta en el stock. */
+    skipped: boolean("skipped").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("intake_lines_batch_idx").on(t.batchId, t.sortOrder)],
 );
 
 /** Historial: quién sumó o descontó, cuánto, dónde y cuándo. */
@@ -335,6 +428,32 @@ export const stockEntriesRelations = relations(stockEntries, ({ one }) => ({
   }),
 }));
 
+export const intakeBatchesRelations = relations(
+  intakeBatches,
+  ({ one, many }) => ({
+    family: one(families, {
+      fields: [intakeBatches.familyId],
+      references: [families.id],
+    }),
+    lines: many(intakeLines),
+  }),
+);
+
+export const intakeLinesRelations = relations(intakeLines, ({ one }) => ({
+  batch: one(intakeBatches, {
+    fields: [intakeLines.batchId],
+    references: [intakeBatches.id],
+  }),
+  product: one(products, {
+    fields: [intakeLines.productId],
+    references: [products.id],
+  }),
+  compartment: one(compartments, {
+    fields: [intakeLines.compartmentId],
+    references: [compartments.id],
+  }),
+}));
+
 export const movementsRelations = relations(movements, ({ one }) => ({
   product: one(products, {
     fields: [movements.productId],
@@ -360,3 +479,8 @@ export type Unit = (typeof unitEnum.enumValues)[number];
 export type MovementKind = (typeof movementKindEnum.enumValues)[number];
 
 export type ShoppingItem = typeof shoppingItems.$inferSelect;
+
+export type IntakeBatch = typeof intakeBatches.$inferSelect;
+export type IntakeLine = typeof intakeLines.$inferSelect;
+export type IntakeStatus = (typeof intakeStatusEnum.enumValues)[number];
+export type IntakeSource = (typeof intakeSourceEnum.enumValues)[number];

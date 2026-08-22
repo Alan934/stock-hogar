@@ -18,6 +18,15 @@ export function formatNumber(value: number) {
   return numberFormatter.format(round3(value));
 }
 
+/** Compara nombres sin distinguir mayúsculas, tildes ni espacios de más. */
+export function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
+}
+
 /** Token corto, legible y difícil de adivinar para los códigos QR. */
 export function createToken(length = 12) {
   const alphabet = "abcdefghijkmnpqrstuvwxyz23456789";

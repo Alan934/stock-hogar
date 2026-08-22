@@ -18,6 +18,7 @@ export function ConfirmAction({
   title,
   description,
   confirmLabel = "Eliminar",
+  tone = "danger",
   trigger,
 }: {
   onConfirm: () => Promise<ActionState>;
@@ -26,6 +27,8 @@ export function ConfirmAction({
   title: string;
   description: string;
   confirmLabel?: string;
+  /** Para lo que no destruye nada pero conviene confirmar igual. */
+  tone?: "danger" | "primary";
   trigger: (open: () => void) => React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -66,7 +69,7 @@ export function ConfirmAction({
             Cancelar
           </Button>
           <Button
-            variant="danger"
+            variant={tone}
             className="flex-1"
             loading={pending}
             onClick={run}

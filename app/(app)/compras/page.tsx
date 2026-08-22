@@ -1,32 +1,36 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { PartyPopper, ShoppingCart, Truck } from "lucide-react";
+import { PackagePlus, PartyPopper, ShoppingCart, Truck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { BuyButton } from "./buy-dialog";
 import { CopyListButton, ManualList } from "./manual-list";
+import { StartIntakeButton } from "./start-intake";
 import { requireFamilyUser } from "@/lib/auth";
 import {
   getAllCompartments,
+  getOpenIntakeBatch,
   getPlacesForProducts,
   getRefillList,
   getShoppingItems,
   getShoppingList,
 } from "@/lib/queries";
 import { unitShort } from "@/lib/units";
-import { formatNumber, round3 } from "@/lib/utils";
+import { formatNumber, round3, timeAgo } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Lista de compras" };
 
 export default async function ShoppingPage() {
   const user = await requireFamilyUser();
 
-  const [missing, refill, manual, compartments] = await Promise.all([
+  const [missing, refill, manual, compartments, openBatch] = await Promise.all([
     getShoppingList(user.familyId, 100),
     getRefillList(user.familyId, 50),
     getShoppingItems(user.familyId),
     getAllCompartments(user.familyId),
+    getOpenIntakeBatch(user.familyId),
   ]);
 
   const places = await getPlacesForProducts(
@@ -62,8 +66,28 @@ export default async function ShoppingPage() {
             Lo que falta en casa, más lo que anote cualquiera de la familia.
           </p>
         </div>
-        {textToCopy ? <CopyListButton text={textToCopy} /> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {textToCopy ? <CopyListButton text={textToCopy} /> : null}
+          <StartIntakeButton mode="lista" label="Cargar la compra" />
+        </div>
       </header>
+
+      {openBatch ? (
+        <Card className="flex flex-wrap items-center gap-3 border-primary/40 bg-primary-soft/25 p-4">
+          <PackagePlus className="size-5 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">Hay una carga a medio revisar</p>
+            <p className="text-xs text-muted">
+              {openBatch.lineCount}{" "}
+              {openBatch.lineCount === 1 ? "producto" : "productos"} · la empezó{" "}
+              {openBatch.createdByName} {timeAgo(openBatch.createdAt)}
+            </p>
+          </div>
+          <Link href={`/compras/cargar/${openBatch.id}`}>
+            <Button variant="soft">Seguir cargando</Button>
+          </Link>
+        </Card>
+      ) : null}
 
       {nothingToDo ? (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border px-6 py-12 text-center">
@@ -75,6 +99,11 @@ export default async function ShoppingPage() {
               aparezca acá, ponele un mínimo desde su ficha.
             </p>
           </div>
+          <StartIntakeButton
+            mode="vacia"
+            variant="soft"
+            label="Cargar una compra igual"
+          />
         </div>
       ) : null}
 
